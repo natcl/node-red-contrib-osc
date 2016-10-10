@@ -17,27 +17,12 @@
 module.exports = function(RED) {
     "use strict";
     var osc = require('osc');
-    var slip = require('slip');
-    var Long = require('long');
-
-    const LONG_SIZE = 4294967296;
 
     function OSC(n) {
         RED.nodes.createNode(this,n);
         var node = this;
         node.path = n.path;
-        node.slip = n.slip;
         node.metadata = n.metadata;
-
-        node.currentMessage = null;
-
-        node.slipDecoder = new slip.Decoder({
-            onMessage: function (m) {
-                node.currentMessage.payload = m;
-                var decodedMsg = node.decode(node.currentMessage);
-                node.send(decodedMsg);
-            }
-        });
 
         node.decode = function(_msg) {
             _msg.raw = osc.readPacket(_msg.payload, {"metadata": node.metadata, "unpackSingleArgs": true});
@@ -54,14 +39,7 @@ module.exports = function(RED) {
         node.on("input", function(msg) {
             // When we get a Buffer
             if (Buffer.isBuffer(msg.payload)) {
-                if (node.slip) {
-                    // We buffer the msg so the slipDecoder callback can access it
-                    node.currentMessage = msg;
-                    node.slipDecoder.decode(msg.payload);
-                    return;
-                } else {
-                    msg = node.decode(msg);
-                }
+                msg = node.decode(msg);
             // When we get an Object
             } else {
                 if (node.path === "") {
@@ -83,18 +61,10 @@ module.exports = function(RED) {
                     packet = msg.payload;
                     packet.timeTag = osc.timeTag(msg.payload.timeTag);
                 } else {
-                    // Send numbers larger than int32 correctly
-                    if (typeof msg.payload === 'number' && msg.payload > LONG_SIZE) {
-                        packet = {address: msg.topic, args: {"type": "h", "value": Long.fromNumber(msg.payload)}};
-                    } else {
-                        packet = {address: msg.topic, args: msg.payload};
-                    }
+                    packet = {address: msg.topic, args: msg.payload};
                 }
 
                 msg.payload = new Buffer(osc.writePacket(packet));
-                if (node.slip) {
-                    msg.payload = new Buffer(slip.encode(msg.payload));
-                }
             }
             node.send(msg);
         });
